@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Movie Sync</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <div class="name-box" id="nameBox">
+    <div class="name-card">
+      <h2>Enter Your Name</h2>
+      <input type="text" id="username" placeholder="Your name" />
+      <button id="joinBtn">Join</button>
+    </div>
+  </div>
+
+  <div class="app">
+    <div class="player" id="player">
+      <video id="video" class="fit-contain" controls autoplay playsinline webkit-playsinline preload="metadata">
+        <source src="/video" type="video/mp4">
+        <track kind="subtitles" src="/subtitle" srclang="en" label="English" default />
+      </video>
+    </div>
+
+    <div class="controls">
+      <button id="back">⏪ -10s</button>
+      <button id="forward">⏩ +10s</button>
+      <button id="fit">📱 Fit</button>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
+</body>
+
+</html>
