@@ -4,6 +4,7 @@ const path = require("path");
 const http = require("http");
 const readline = require("readline");
 const { Server } = require("socket.io");
+const { pickVideo, pickSubtitle } = require("./filePicker");
 
 const app = express();
 const PORT = 6996;
@@ -116,22 +117,64 @@ io.on("connection", (socket) => {
   });
 });
 
+async function resolveVideoPath() {
+  console.log("Opening video picker...");
+  const picked = pickVideo();
+
+  if (picked === undefined) {
+    // No picker backend available → old terminal prompt
+    return (await ask("Enter full video path: ")).trim();
+  }
+  if (picked === null) {
+    console.log("No video selected. Exiting.");
+    rl.close();
+    process.exit(1);
+  }
+  console.log(`Selected video: ${picked}`);
+  return picked;
+}
+
+async function resolveSubtitlePath() {
+  const proceed = (
+    await ask("Add a subtitle file? (y/N): ")
+  ).trim().toLowerCase();
+
+  if (proceed !== "y" && proceed !== "yes") {
+    return "";
+  }
+
+  console.log("Opening subtitle picker...");
+  const picked = pickSubtitle();
+
+  if (picked === undefined) {
+    return (await ask("Enter full subtitle path (Or press enter to skip): ")).trim();
+  }
+  if (picked === null) {
+    console.log("No subtitle selected, skipping.");
+    return "";
+  }
+  console.log(`Selected subtitle: ${picked}`);
+  return picked;
+}
+
 async function startServer() {
-  videoPath = (await ask("Enter full video path: ")).trim();
-  subtitlePath = (await ask("Enter full subtitle path (Or press enter to skip): ")).trim();
+  videoPath = await resolveVideoPath();
   if (videoPath) {
     videoPath = videoPath.replace(/['"]/g, "");
   }
+
+  if (!videoPath || !fs.existsSync(videoPath)) {
+    console.log("Video file not found.");
+    rl.close();
+    process.exit(1);
+  }
+
+  subtitlePath = await resolveSubtitlePath();
   if (subtitlePath) {
     subtitlePath = subtitlePath.replace(/['"]/g, "");
   }
 
   rl.close();
-
-  if (!fs.existsSync(videoPath)) {
-    console.log("Video file not found.");
-    process.exit(1);
-  }
 
   if (subtitlePath && !fs.existsSync(subtitlePath)) {
     console.log("Subtitle file not found.");
