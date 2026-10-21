@@ -118,7 +118,7 @@ io.on("connection", (socket) => {
 
 async function startServer() {
   videoPath = (await ask("Enter full video path: ")).trim();
-  subtitlePath = (await ask("Enter full subtitle path: ")).trim();
+  subtitlePath = (await ask("Enter full subtitle path (Or press enter to skip): ")).trim();
   if (videoPath) {
     videoPath = videoPath.replace(/['"]/g, "");
   }
@@ -133,7 +133,7 @@ async function startServer() {
     process.exit(1);
   }
 
-  if (!fs.existsSync(subtitlePath)) {
+  if (subtitlePath && !fs.existsSync(subtitlePath)) {
     console.log("Subtitle file not found.");
     process.exit(1);
   }
