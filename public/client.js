@@ -298,22 +298,28 @@ function appendActivityText(element, item) {
   const username = document.createElement("span");
   username.className = "activity-username";
   username.textContent = item.username;
+  username.style.color = usernameColor(item.username);
   element.append(username);
 
+  const action = document.createElement("span");
+  action.className = "activity-action";
+
   if (item.type === "join") {
-    element.append(document.createTextNode(" joined"));
+    action.textContent = " joined";
   } else if (item.type === "leave") {
-    element.append(document.createTextNode(" left"));
+    action.textContent = " left";
   } else if (item.type === "voice-join") {
-    element.append(document.createTextNode(" joined voice"));
+    action.textContent = " joined voice";
   } else if (item.type === "voice-leave") {
-    element.append(document.createTextNode(" left voice"));
+    action.textContent = " left voice";
   } else if (item.type === "seek") {
-    element.append(document.createTextNode(` skipped to ${formatVideoTime(item.currentTime)}`));
+    action.textContent = ` skipped to ${formatVideoTime(item.currentTime)}`;
   } else {
-    const action = item.type === "play" ? " played" : " paused";
-    element.append(document.createTextNode(`${action} at ${formatVideoTime(item.currentTime)}`));
+    const activity = item.type === "play" ? " played" : " paused";
+    action.textContent = `${activity} at ${formatVideoTime(item.currentTime)}`;
   }
+
+  element.append(action);
 }
 
 function renderEvent(item) {

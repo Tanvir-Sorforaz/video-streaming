@@ -915,6 +915,18 @@ video.fit-contain {
   font-weight: 700;
 }
 
+.activity-action {
+  color: inherit;
+}
+
+.activity-username {
+  font-weight: 700;
+}
+
+.activity-action {
+  color: inherit;
+}
+
 .new-messages {
   position: absolute;
   bottom: 57px;
