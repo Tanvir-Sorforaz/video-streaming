@@ -312,6 +312,164 @@ video.fit-contain {
   pointer-events: auto;
 }
 
+.voice-settings-button,
+.voice-settings-close {
+  width: 30px;
+  height: 30px;
+  padding: 7px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: white;
+  cursor: pointer;
+}
+
+.voice-settings-button {
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  right: 9px;
+}
+
+.voice-settings-button:hover,
+.voice-settings-close:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.voice-settings-button svg,
+.voice-settings-close svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.voice-settings {
+  position: absolute;
+  z-index: 5;
+  top: 42px;
+  right: 8px;
+  width: min(270px, calc(100% - 16px));
+  padding: 11px;
+  border: 1px solid var(--chat-glass-border);
+  border-radius: 10px;
+  background: rgba(10, 10, 12, 0.92);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  color: var(--chat-text);
+  font-size: 11px;
+}
+
+.voice-settings-header {
+  min-height: 28px;
+  margin-bottom: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.voice-settings-header h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.voice-settings-close {
+  width: 26px;
+  height: 26px;
+  padding: 6px;
+}
+
+.voice-device-field {
+  margin: 0 0 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.voice-device-field select {
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  color: white;
+  font: inherit;
+}
+
+.voice-device-field select option {
+  background: #171719;
+  color: white;
+}
+
+.voice-device-permission,
+.voice-device-notice,
+.voice-device-hint {
+  margin: 0 0 9px;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.voice-device-permission {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.voice-device-permission button,
+.voice-level-row button {
+  padding: 5px 9px;
+  border: 1px solid var(--chat-glass-border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.14);
+  color: white;
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+
+.voice-movie-output {
+  margin: 1px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.voice-movie-output input {
+  accent-color: #69d992;
+}
+
+.voice-level-row {
+  display: grid;
+  grid-template-columns: 1fr minmax(54px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.voice-level-row meter {
+  width: 100%;
+  height: 9px;
+  accent-color: #69d992;
+}
+
+.voice-device-notice {
+  margin: 9px 0 0;
+}
+
+.voice-join-row {
+  padding-right: 36px;
+}
+
 .voice-join-row {
   min-height: 32px;
   display: flex;

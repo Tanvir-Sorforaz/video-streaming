@@ -31,6 +31,23 @@ const JOIN_MUTED = false;
   const voiceMicBadge = document.getElementById("voiceMicBadge");
   const voiceSpeakingLive = document.getElementById("voiceSpeakingLive");
   const voicePopover = document.getElementById("voicePopover");
+  const voiceSettingsButton = document.getElementById("voiceSettingsButton");
+  const voiceSettings = document.getElementById("voiceSettings");
+  const voiceSettingsClose = document.getElementById("voiceSettingsClose");
+  const voiceMicrophone = document.getElementById("voiceMicrophone");
+  const voiceSpeaker = document.getElementById("voiceSpeaker");
+  const voiceSpeakerField = document.getElementById("voiceSpeakerField");
+  const voiceMovieOutput = document.getElementById("voiceMovieOutput");
+  const voiceMovieOutputLabel = document.getElementById("voiceMovieOutputLabel");
+  const voiceDevicePermission = document.getElementById("voiceDevicePermission");
+  const voiceAllowDevices = document.getElementById("voiceAllowDevices");
+  const voiceBluetoothHint = document.getElementById("voiceBluetoothHint");
+  const voiceOutputHint = document.getElementById("voiceOutputHint");
+  const voiceDeviceNotice = document.getElementById("voiceDeviceNotice");
+  const voiceLevelMeter = document.getElementById("voiceLevelMeter");
+  const voiceTestButton = document.getElementById("voiceTestButton");
+  const setSinkIdSupported = "setSinkId" in HTMLMediaElement.prototype;
+  const prefsKey = "voicePrefs:devices";
 
   const peerConnections = new Map();
   const participants = new Map();
@@ -55,6 +72,14 @@ const JOIN_MUTED = false;
   let cleaningUp = false;
   let speakerPillTimeout = null;
   let activePopoverId = null;
+  let prefs = { microphoneId: "default", speakerId: "default", movieOutput: true };
+  let previewStream = null;
+  let meterContext = null;
+  let meterSource = null;
+  let meterAnalyser = null;
+  let meterFrame = null;
+  let microphoneSwitching = false;
+  let permissionRequest = false;
 
   function createIcon(name) {
     const iconPaths = {
@@ -93,6 +118,316 @@ const JOIN_MUTED = false;
     voiceJoinRow.hidden = Boolean(message) || inVoice || joiningVoice;
     voiceCall.hidden = !inVoice;
     voiceTryAgain.hidden = !message || message === "Voice is full";
+  }
+
+  function loadPrefs() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(prefsKey) || "null");
+      if (!saved || typeof saved !== "object") return;
+      prefs.microphoneId = typeof saved.microphoneId === "string" && saved.microphoneId !== "communications"
+        ? saved.microphoneId
+        : "default";
+      prefs.speakerId = typeof saved.speakerId === "string" && saved.speakerId !== "communications"
+        ? saved.speakerId
+        : "default";
+      prefs.movieOutput = saved.movieOutput !== false;
+    } catch (error) {
+      console.debug("Could not load voice preferences:", error);
+    }
+    voiceMovieOutput.checked = prefs.movieOutput;
+    voiceMicrophone.value = prefs.microphoneId;
+    voiceSpeaker.value = prefs.speakerId;
+  }
+
+  function savePrefs() {
+    try {
+      localStorage.setItem(prefsKey, JSON.stringify(prefs));
+    } catch (error) {
+      console.debug("Could not save voice preferences:", error);
+    }
+  }
+
+  async function listDevices() {
+    if (!navigator.mediaDevices?.enumerateDevices) return [];
+    try {
+      return await navigator.mediaDevices.enumerateDevices();
+    } catch (error) {
+      console.warn("Could not list audio devices:", error);
+      return [];
+    }
+  }
+
+  function setDeviceNotice(message) {
+    voiceDeviceNotice.textContent = message || "";
+    voiceDeviceNotice.hidden = !message;
+  }
+
+  function addDeviceOptions(select, devices, kind, selectedId, genericName) {
+    select.replaceChildren();
+    const defaultOption = document.createElement("option");
+    defaultOption.value = "default";
+    defaultOption.textContent = "System default";
+    select.append(defaultOption);
+    let unnamedCount = 0;
+    for (const device of devices) {
+      if (device.kind !== kind || device.deviceId === "default" || device.deviceId === "communications") continue;
+      const option = document.createElement("option");
+      option.value = device.deviceId;
+      unnamedCount += 1;
+      option.textContent = device.label || `${genericName} ${unnamedCount}`;
+      select.append(option);
+    }
+    select.value = Array.from(select.options).some((option) => option.value === selectedId) ? selectedId : "default";
+  }
+
+  function updateBluetoothHint() {
+    const selected = voiceMicrophone.selectedOptions[0];
+    const label = selected?.textContent || "";
+    voiceBluetoothHint.textContent = "Bluetooth headsets switch to low-quality audio when their microphone is used. For better quality, choose another microphone and keep these headphones for sound.";
+    voiceBluetoothHint.hidden = !/(hands-free|headset|bluetooth)/i.test(label);
+  }
+
+  async function refreshDeviceLists() {
+    const devices = await listDevices();
+    const inputs = devices.filter((device) => device.kind === "audioinput");
+    const outputs = devices.filter((device) => device.kind === "audiooutput");
+    const inputIds = new Set(inputs.map((device) => device.deviceId));
+    const outputIds = new Set(outputs.map((device) => device.deviceId));
+    const microphoneMissing = prefs.microphoneId !== "default" && inputs.length > 0 && !inputIds.has(prefs.microphoneId);
+    const speakerMissing = prefs.speakerId !== "default" && outputs.length > 0 && !outputIds.has(prefs.speakerId);
+
+    if (microphoneMissing) prefs.microphoneId = "default";
+    if (speakerMissing) prefs.speakerId = "default";
+    addDeviceOptions(voiceMicrophone, devices, "audioinput", prefs.microphoneId, "Microphone");
+    addDeviceOptions(voiceSpeaker, devices, "audiooutput", prefs.speakerId, "Speaker");
+    voiceDevicePermission.hidden = inputs.some((device) => device.label.trim());
+    voiceSpeakerField.hidden = !setSinkIdSupported;
+    voiceOutputHint.hidden = setSinkIdSupported;
+    voiceOutputHint.textContent = "Your browser uses the system output. Change it in your system sound settings.";
+    voiceMovieOutputLabel.hidden = !setSinkIdSupported;
+    voiceMovieOutput.checked = prefs.movieOutput;
+    updateBluetoothHint();
+
+    if (microphoneMissing) {
+      savePrefs();
+      setDeviceNotice("Your microphone was unplugged. Switched to the default device.");
+      if (inVoice) await selectMicrophone("default", { announce: false });
+    } else if (speakerMissing) {
+      savePrefs();
+      setDeviceNotice("Your headphones were unplugged. Switched to the default output.");
+      await selectSpeaker("default", { announce: false });
+    } else if (voiceDeviceNotice.textContent.includes("unplugged")) {
+      setDeviceNotice("");
+    }
+  }
+
+  async function getMicrophoneStream(deviceId) {
+    const audio = {
+      deviceId: deviceId && deviceId !== "default" ? { exact: deviceId } : undefined,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    };
+    try {
+      return await navigator.mediaDevices.getUserMedia({ audio, video: false });
+    } catch (error) {
+      if (!deviceId || deviceId === "default" || !["OverconstrainedError", "NotFoundError"].includes(error.name)) throw error;
+      prefs.microphoneId = "default";
+      voiceMicrophone.value = "default";
+      savePrefs();
+      setDeviceNotice("That microphone is unavailable. Switched to the system default.");
+      return navigator.mediaDevices.getUserMedia({
+        audio: { deviceId: undefined, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: false,
+      });
+    }
+  }
+
+  async function applySinkId(element, deviceId) {
+    if (!setSinkIdSupported || typeof element.setSinkId !== "function") return false;
+    try {
+      await element.setSinkId(deviceId || "default");
+      return true;
+    } catch (error) {
+      setDeviceNotice("Could not change the audio output. Check that the selected device is connected.");
+      console.warn("Could not set audio output:", error);
+      return false;
+    }
+  }
+
+  async function selectSpeaker(deviceId, { announce = true } = {}) {
+    prefs.speakerId = deviceId || "default";
+    voiceSpeaker.value = prefs.speakerId;
+    savePrefs();
+    const targets = Array.from(peerConnections.values(), (peer) => applySinkId(peer.audio, prefs.speakerId));
+    if (prefs.movieOutput) targets.push(applySinkId(video, prefs.speakerId));
+    const results = await Promise.all(targets);
+    if (announce && results.every(Boolean)) setDeviceNotice("");
+  }
+
+  async function selectMicrophone(deviceId, { announce = true } = {}) {
+    prefs.microphoneId = deviceId || "default";
+    voiceMicrophone.value = prefs.microphoneId;
+    savePrefs();
+    updateBluetoothHint();
+    if (microphoneSwitching) return;
+    if (!inVoice) {
+      if (voiceSettingsOpen()) await startPreview();
+      return;
+    }
+
+    microphoneSwitching = true;
+    voiceMicrophone.disabled = true;
+    try {
+      const nextStream = await getMicrophoneStream(prefs.microphoneId);
+      const nextTrack = nextStream.getAudioTracks()[0];
+      if (!nextTrack) throw new Error("No microphone track was returned.");
+      nextTrack.enabled = !localMuted;
+      const oldStream = localStream;
+      const oldTrack = oldStream?.getAudioTracks()[0];
+      const senders = Array.from(peerConnections.values())
+        .flatMap((peer) => peer.connection.getSenders())
+        .filter((sender) => sender.track?.kind === "audio");
+      try {
+        await Promise.all(senders.map((sender) => sender.replaceTrack(nextTrack)));
+      } catch (error) {
+        if (oldTrack) await Promise.all(senders.map((sender) => sender.replaceTrack(oldTrack).catch(() => {})));
+        nextStream.getTracks().forEach((track) => track.stop());
+        throw error;
+      }
+      localStream = nextStream;
+      oldStream?.getTracks().forEach((track) => track.stop());
+      addAnalyser(socket.id, nextStream, localMuted);
+      if (voiceSettingsOpen()) await startPreview();
+      if (announce) setDeviceNotice("");
+    } catch (error) {
+      setDeviceNotice(error.message || "Could not switch microphones.");
+    } finally {
+      microphoneSwitching = false;
+      voiceMicrophone.disabled = false;
+    }
+  }
+
+  function voiceSettingsOpen() {
+    return !voiceSettings.hidden;
+  }
+
+  async function startPreview() {
+    stopPreview();
+    try {
+      const stream = inVoice ? localStream : await getMicrophoneStream(prefs.microphoneId);
+      if (!stream) return;
+      if (!inVoice) {
+        previewStream = stream;
+        await refreshDeviceLists();
+      }
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return;
+      meterContext = new AudioContextClass();
+      if (meterContext.state === "suspended") await meterContext.resume();
+      meterSource = meterContext.createMediaStreamSource(stream);
+      meterAnalyser = meterContext.createAnalyser();
+      meterAnalyser.fftSize = 256;
+      meterSource.connect(meterAnalyser);
+      const samples = new Float32Array(meterAnalyser.fftSize);
+      const updateMeter = () => {
+        if (!voiceSettingsOpen() || !meterAnalyser) return;
+        meterAnalyser.getFloatTimeDomainData(samples);
+        let sum = 0;
+        for (const sample of samples) sum += sample * sample;
+        voiceLevelMeter.value = Math.min(1, Math.sqrt(sum / samples.length) * 5);
+        meterFrame = requestAnimationFrame(updateMeter);
+      };
+      meterFrame = requestAnimationFrame(updateMeter);
+    } catch (error) {
+      setDeviceNotice(error.message || "Could not start the microphone preview.");
+    }
+  }
+
+  function stopPreview() {
+    if (meterFrame !== null) cancelAnimationFrame(meterFrame);
+    meterFrame = null;
+    meterSource?.disconnect();
+    meterAnalyser?.disconnect();
+    meterSource = null;
+    meterAnalyser = null;
+    previewStream?.getTracks().forEach((track) => track.stop());
+    previewStream = null;
+    if (meterContext) meterContext.close().catch(() => {});
+    meterContext = null;
+    voiceLevelMeter.value = 0;
+  }
+
+  async function playTestBeep() {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) {
+      setDeviceNotice("Audio testing is not available in this browser.");
+      return;
+    }
+    let context;
+    let audio;
+    try {
+      context = new AudioContextClass();
+      if (context.state === "suspended") await context.resume();
+      const destination = context.createMediaStreamDestination();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      audio = document.createElement("audio");
+      audio.hidden = true;
+      audio.volume = 0.15;
+      audio.srcObject = destination.stream;
+      document.body.append(audio);
+      if (setSinkIdSupported) await applySinkId(audio, prefs.speakerId);
+      oscillator.frequency.value = 440;
+      gain.gain.value = 0.15;
+      oscillator.connect(gain);
+      gain.connect(destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.4);
+      await audio.play();
+      setTimeout(() => {
+        audio.pause();
+        audio.srcObject = null;
+        audio.remove();
+        context.close().catch(() => {});
+      }, 450);
+    } catch (error) {
+      audio?.remove();
+      context?.close().catch(() => {});
+      setDeviceNotice("Could not play the test tone. Check your audio output and try again.");
+    }
+  }
+
+  async function allowDeviceLabels() {
+    if (permissionRequest || !navigator.mediaDevices?.getUserMedia) return;
+    permissionRequest = true;
+    voiceAllowDevices.disabled = true;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      stream.getTracks().forEach((track) => track.stop());
+      await refreshDeviceLists();
+      setDeviceNotice("");
+    } catch (error) {
+      setDeviceNotice("Microphone access was not granted. Allow it in your browser settings.");
+    } finally {
+      permissionRequest = false;
+      voiceAllowDevices.disabled = false;
+    }
+  }
+
+  function openVoiceSettings() {
+    voiceSettings.hidden = false;
+    voiceSettingsButton.setAttribute("aria-expanded", "true");
+    voiceMicrophone.focus();
+    refreshDeviceLists();
+    startPreview();
+  }
+
+  function closeVoiceSettings() {
+    voiceSettings.hidden = true;
+    voiceSettingsButton.setAttribute("aria-expanded", "false");
+    stopPreview();
+    voiceSettingsButton.focus();
   }
 
   function updateVoiceUI() {
@@ -483,6 +818,7 @@ const JOIN_MUTED = false;
     audio.playsInline = true;
     audio.setAttribute("aria-hidden", "true");
     overlay.append(audio);
+    applySinkId(audio, prefs.speakerId);
     const peer = {
       id: participant.id,
       username: participant.username || "Unknown User",
@@ -662,10 +998,8 @@ const JOIN_MUTED = false;
     voiceError.hidden = true;
     updateVoiceUI();
     try {
-      localStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        video: false,
-      });
+      stopPreview();
+      localStream = await getMicrophoneStream(prefs.microphoneId);
       localMuted = JOIN_MUTED;
       localStream.getAudioTracks().forEach((track) => {
         track.enabled = !localMuted;
@@ -706,6 +1040,7 @@ const JOIN_MUTED = false;
     participants.set(socket.id, { id: socket.id, username: window.watchPartyUsername || "You", muted: localMuted });
     for (const participant of peerList) participants.set(participant.id, participant);
     updateVoiceUI();
+    if (voiceSettingsOpen()) startPreview();
     startPeerOffers(peerList);
   }
 
@@ -722,6 +1057,7 @@ const JOIN_MUTED = false;
     speakerPillTimeout = null;
     clearInterval(duckRampInterval);
     duckRampInterval = null;
+    stopPreview();
     duckRequested = false;
     isDucking = false;
     duckLabel.hidden = true;
@@ -747,6 +1083,7 @@ const JOIN_MUTED = false;
     closePeerPopover();
     updateVoiceUI();
     cleaningUp = false;
+    if (voiceSettingsOpen()) startPreview();
   }
 
   function leaveVoice() {
@@ -841,6 +1178,27 @@ const JOIN_MUTED = false;
     const results = await Promise.all(Array.from(peerConnections.values(), (peer) => peer.audio.play().catch(() => null)));
     voiceAudioEnable.hidden = results.every(Boolean);
   });
+  voiceSettingsButton.addEventListener("click", () => {
+    if (voiceSettingsOpen()) closeVoiceSettings();
+    else openVoiceSettings();
+  });
+  voiceSettingsButton.addEventListener("keydown", (event) => event.stopPropagation());
+  voiceSettingsButton.addEventListener("keyup", (event) => event.stopPropagation());
+  voiceSettingsClose.addEventListener("click", closeVoiceSettings);
+  voiceMicrophone.addEventListener("change", () => selectMicrophone(voiceMicrophone.value));
+  voiceSpeaker.addEventListener("change", () => selectSpeaker(voiceSpeaker.value));
+  voiceMovieOutput.addEventListener("change", async () => {
+    prefs.movieOutput = voiceMovieOutput.checked;
+    savePrefs();
+    if (setSinkIdSupported) await applySinkId(video, prefs.movieOutput ? prefs.speakerId : "default");
+  });
+  voiceAllowDevices.addEventListener("click", allowDeviceLabels);
+  voiceTestButton.addEventListener("click", playTestBeep);
+  voiceSettings.addEventListener("keydown", (event) => {
+    event.stopPropagation();
+    if (event.key === "Escape") closeVoiceSettings();
+  });
+  voiceSettings.addEventListener("keyup", (event) => event.stopPropagation());
   voicePopover.addEventListener("click", (event) => event.stopPropagation());
   document.addEventListener("click", handleOutsideClick);
   document.addEventListener("keydown", (event) => {
@@ -857,8 +1215,16 @@ const JOIN_MUTED = false;
   window.addEventListener("beforeunload", leaveVoice);
   video.addEventListener("volumechange", handleVolumeChange);
   window.addEventListener("resize", positionSpeakerPill);
-  new MutationObserver(updateSpeakingUI).observe(chatPanel, { attributes: true, attributeFilter: ["hidden"] });
+  new MutationObserver(() => {
+    updateSpeakingUI();
+    if (chatPanel.hidden && voiceSettingsOpen()) {
+      voiceSettings.hidden = true;
+      voiceSettingsButton.setAttribute("aria-expanded", "false");
+      stopPreview();
+    }
+  }).observe(chatPanel, { attributes: true, attributeFilter: ["hidden"] });
   chatHead.addEventListener("click", () => setTimeout(updateSpeakingUI, 0));
+  navigator.mediaDevices?.addEventListener?.("devicechange", refreshDeviceLists);
 
   socket.on("init-state", handleInitState);
   socket.on("voice-peers", handleVoicePeers);
@@ -871,6 +1237,14 @@ const JOIN_MUTED = false;
   socket.on("disconnect", handleSocketDisconnect);
 
   duckToggle.checked = true;
+  loadPrefs();
+  voiceSettingsButton.setAttribute("aria-expanded", "false");
+  voiceSpeakerField.hidden = !setSinkIdSupported;
+  voiceOutputHint.hidden = setSinkIdSupported;
+  voiceOutputHint.textContent = "Your browser uses the system output. Change it in your system sound settings.";
+  voiceMovieOutputLabel.hidden = !setSinkIdSupported;
+  refreshDeviceLists();
+  if (setSinkIdSupported && prefs.movieOutput) applySinkId(video, prefs.speakerId);
   window.voiceSpeakingUsers = speakingUsers;
   window.voiceChat = { joinVoice, leaveVoice, createPeer, handleSignal, setMuted, startSpeakingDetection, updateDucking, destroyPeer };
   updateVoiceUI();
