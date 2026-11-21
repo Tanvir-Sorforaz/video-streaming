@@ -17,6 +17,9 @@ const chatBadge = document.getElementById("chatBadge");
 const chatPreviews = document.getElementById("chatPreviews");
 const chatPanel = document.getElementById("chatPanel");
 const chatCloseBtn = document.getElementById("chatClose");
+const voiceSettings = document.getElementById("voiceSettings");
+const voiceControls = document.getElementById("voiceControls");
+const duckControl = document.querySelector(".duck-control");
 const chatAvatar = document.getElementById("chatAvatar");
 const chatMessages = document.getElementById("chatMessages");
 const chatForm = document.getElementById("chatForm");
@@ -34,6 +37,11 @@ let unreadCount = 0;
 let headDragged = false;
 let suppressHeadClick = false;
 let headPointerStart = null;
+let popoverOpen = false;
+let popoverCloseTimer = null;
+let keyboardHeadTop = null;
+const mobilePopoverQuery = window.matchMedia("(max-width: 600px), (orientation: portrait) and (hover: none) and (pointer: coarse), (orientation: landscape) and (hover: none) and (pointer: coarse)");
+const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
 const eventNodes = new Map();
 const seenEventIds = new Set();
 const previewNodes = new Map();
@@ -317,9 +325,10 @@ function renderEvent(item) {
   return event;
 }
 
-function appendChatItem(item, shouldScroll) {
+function appendChatItem(item, shouldScroll, animate = false) {
   const nearBottom = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < 48;
   const element = item.type === "message" ? renderMessage(item) : renderEvent(item);
+  if (animate) element.classList.add("chat-item-enter", item.username === currentUsername ? "mine" : "other");
   if (item.eventId) eventNodes.set(item.eventId, element);
   chatMessages.append(element);
 
@@ -358,17 +367,35 @@ function updateBadge() {
   chatBadge.textContent = unreadCount > 9 ? "9+" : String(unreadCount);
 }
 
+function getMobileInsets() {
+  const styles = getComputedStyle(chatHead);
+  const safeInset = (side) => Number.parseFloat(styles.getPropertyValue(`--chat-safe-${side}`)) || 0;
+  return {
+    top: 12 + safeInset("top"),
+    right: 12 + safeInset("right"),
+    bottom: 12 + safeInset("bottom"),
+    left: 12 + safeInset("left"),
+  };
+}
+
 function positionPreviews() {
   const headLeft = chatHead.offsetLeft;
   const headTop = chatHead.offsetTop;
-  const width = Math.min(200, Math.max(0, player.clientWidth - 16));
-  const left = Math.max(8, Math.min(player.clientWidth - width - 8, headLeft + chatHead.offsetWidth - width));
+  const insets = getMobileInsets();
+  const leftInset = mobilePopoverQuery.matches ? insets.left : 8;
+  const rightInset = mobilePopoverQuery.matches ? insets.right : 8;
+  const width = Math.min(mobilePopoverQuery.matches ? 190 : 200, Math.max(0, player.clientWidth - leftInset - rightInset));
+  const preferredLeft = mobilePopoverQuery.matches
+    ? headLeft - width - 8
+    : headLeft + chatHead.offsetWidth - width;
+  const left = Math.max(leftInset, Math.min(player.clientWidth - width - rightInset, preferredLeft));
   chatPreviews.style.left = `${left}px`;
-  chatPreviews.style.top = `${Math.min(player.clientHeight - 40, headTop + chatHead.offsetHeight + 8)}px`;
+  const preferredTop = mobilePopoverQuery.matches ? headTop : headTop + chatHead.offsetHeight + 8;
+  chatPreviews.style.top = `${Math.max(8, Math.min(player.clientHeight - 40, preferredTop))}px`;
 }
 
 function showPreview(item) {
-  if (!chatPanel.hidden) return;
+  if (popoverOpen) return;
   positionPreviews();
 
   let preview = item.eventId ? previewNodes.get(item.eventId) : null;
@@ -376,6 +403,7 @@ function showPreview(item) {
   if (!preview) {
     preview = document.createElement("div");
     preview.className = `chat-preview ${item.type === "message" ? "message-preview" : "event-preview"}`;
+    if (item.eventId) preview.dataset.eventId = item.eventId;
     chatPreviews.append(preview);
     if (item.eventId) previewNodes.set(item.eventId, preview);
   } else {
@@ -404,7 +432,7 @@ function showPreview(item) {
       preview.remove();
       if (item.eventId) previewNodes.delete(item.eventId);
     }, 200);
-  }, 4000);
+  }, 3500);
 
   while (chatPreviews.children.length > 3) {
     const oldest = chatPreviews.firstElementChild;
@@ -412,6 +440,26 @@ function showPreview(item) {
     if (oldest.dataset.eventId) previewNodes.delete(oldest.dataset.eventId);
     oldest.remove();
   }
+}
+
+function wiggleHead() {
+  if (!mobilePopoverQuery.matches) return;
+  chatHead.classList.remove("wiggle");
+  requestAnimationFrame(() => chatHead.classList.add("wiggle"));
+  setTimeout(() => chatHead.classList.remove("wiggle"), 500);
+}
+
+function popBadge() {
+  if (!mobilePopoverQuery.matches || chatBadge.hidden) return;
+  chatBadge.classList.remove("pop");
+  requestAnimationFrame(() => chatBadge.classList.add("pop"));
+  setTimeout(() => chatBadge.classList.remove("pop"), 350);
+}
+
+function vibrateLightly() {
+  try {
+    navigator.vibrate?.(10);
+  } catch (error) {}
 }
 
 function receiveChatItem(item) {
@@ -423,55 +471,179 @@ function receiveChatItem(item) {
     eventNodes.get(item.eventId).replaceWith(updatedEvent);
     eventNodes.set(item.eventId, updatedEvent);
   } else {
-    appendChatItem(item, !chatPanel.hidden);
+    appendChatItem(item, popoverOpen, popoverOpen);
   }
 
   const isFirstEvent = !item.eventId || !seenEventIds.has(item.eventId);
   if (item.eventId) seenEventIds.add(item.eventId);
-  if (isFirstEvent && item.username !== currentUsername && chatPanel.hidden) {
+  if (isFirstEvent && item.username !== currentUsername && !popoverOpen) {
     unreadCount += 1;
     updateBadge();
+    wiggleHead();
+    popBadge();
+    vibrateLightly();
   }
   showPreview(item);
 }
 
-function openChat() {
+function positionPopover() {
+  if (!mobilePopoverQuery.matches) return;
+  const insets = getMobileInsets();
+  const headLeft = chatHead.offsetLeft;
+  const sideIsLeft = headLeft + chatHead.offsetWidth / 2 < player.clientWidth / 2;
+  chatPanel.classList.toggle("popover-left", sideIsLeft);
+  chatPanel.style.left = `${Math.max(insets.left, Math.min(player.clientWidth - chatPanel.offsetWidth - insets.right,
+    sideIsLeft ? headLeft : headLeft + chatHead.offsetWidth - chatPanel.offsetWidth))}px`;
+  const top = chatHead.offsetTop + chatHead.offsetHeight + 8;
+  chatPanel.style.top = `${top}px`;
+  chatPanel.style.right = "auto";
+
+  const playerRect = player.getBoundingClientRect();
+  const viewportBottom = window.visualViewport
+    ? window.visualViewport.offsetTop + window.visualViewport.height - playerRect.top
+    : player.clientHeight;
+  const boundary = Math.min(player.clientHeight * (isLandscapePopover() ? 0.6 : 0.45), viewportBottom);
+  const availableHeight = Math.max(0, boundary - top - 8);
+  chatPanel.style.height = `${Math.min(228, availableHeight)}px`;
+}
+
+function isLandscapePopover() {
+  return matchMedia("(orientation: landscape)").matches;
+}
+
+function handleKeyboardViewport() {
+  if (!mobilePopoverQuery.matches) return;
+  const viewport = window.visualViewport;
+  const baselineHeight = Math.max(window.screen.height, window.innerHeight, player.clientHeight);
+  const keyboardOpen = popoverOpen && viewport && document.activeElement === chatInput
+    && viewport.height < baselineHeight - 80;
+  if (keyboardOpen) {
+    keyboardHeadTop ??= chatHead.offsetTop;
+    const insets = getMobileInsets();
+    const playerRect = player.getBoundingClientRect();
+    const viewportBottom = viewport.offsetTop + viewport.height - playerRect.top;
+    const boundary = Math.min(player.clientHeight * (isLandscapePopover() ? 0.6 : 0.45), viewportBottom);
+    const minimumPanelHeight = Math.min(120, Math.max(0, boundary - chatHead.offsetHeight - 16));
+    const maxHeadTop = Math.max(insets.top, boundary - chatHead.offsetHeight - 8 - minimumPanelHeight);
+    if (chatHead.offsetTop > maxHeadTop) chatHead.style.top = `${maxHeadTop}px`;
+  } else {
+    restoreKeyboardHeadPosition();
+  }
+  if (!popoverOpen) return;
+  positionPopover();
+  if (keyboardOpen) chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function restoreKeyboardHeadPosition() {
+  if (keyboardHeadTop === null) return;
+  const insets = getMobileInsets();
+  const maxTop = Math.max(insets.top, player.clientHeight - chatHead.offsetHeight - insets.bottom);
+  chatHead.style.top = `${Math.max(insets.top, Math.min(maxTop, keyboardHeadTop))}px`;
+  keyboardHeadTop = null;
+}
+
+voiceSettings.addEventListener("keydown", (event) => {
+  if (!mobilePopoverQuery.matches || event.key !== "Escape") return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  closePopover();
+}, true);
+
+function openPopover() {
+  clearTimeout(popoverCloseTimer);
+  popoverCloseTimer = null;
+  popoverOpen = true;
   chatPanel.hidden = false;
+  chatPanel.inert = false;
+  chatPanel.setAttribute("aria-hidden", "false");
+  chatHead.setAttribute("aria-expanded", "true");
+  chatHead.setAttribute("aria-label", "Close watch-party chat");
+  chatHead.classList.toggle("popover-open", mobilePopoverQuery.matches);
+  chatPanel.classList.remove("is-closing");
+  chatPanel.classList.toggle("is-open", mobilePopoverQuery.matches);
   unreadCount = 0;
   updateBadge();
+  chatPreviews.querySelectorAll(".chat-preview").forEach((preview) => clearTimeout(preview.timeoutId));
   chatPreviews.replaceChildren();
   previewNodes.clear();
   newMessagesBtn.hidden = true;
   chatMessages.scrollTop = chatMessages.scrollHeight;
+  if (mobilePopoverQuery.matches) clampChatHead();
+  positionPopover();
+  if (mobilePopoverQuery.matches) vibrateLightly();
 }
 
-function closeChat() {
-  chatPanel.hidden = true;
+function closePopover() {
+  if (!popoverOpen) return;
+  popoverOpen = false;
+  restoreKeyboardHeadPosition();
+  chatPanel.inert = true;
+  chatPanel.setAttribute("aria-hidden", "true");
+  chatHead.setAttribute("aria-expanded", "false");
+  chatHead.setAttribute("aria-label", "Open watch-party chat");
+  chatHead.classList.remove("popover-open");
   newMessagesBtn.hidden = true;
+  if (mobilePopoverQuery.matches) {
+    chatPanel.classList.remove("is-open");
+    chatPanel.classList.add("is-closing");
+    popoverCloseTimer = setTimeout(() => {
+      chatPanel.hidden = true;
+      chatPanel.classList.remove("is-closing");
+      popoverCloseTimer = null;
+    }, reducedMotionQuery.matches ? 150 : 220);
+  } else {
+    chatPanel.hidden = true;
+  }
+  chatHead.focus();
 }
 
 function toggleChat() {
-  if (chatPanel.hidden) openChat();
-  else closeChat();
+  if (!popoverOpen) openPopover();
+  else closePopover();
 }
 
 function clampChatHead() {
-  const maxLeft = Math.max(8, player.clientWidth - chatHead.offsetWidth - 8);
-  const maxTop = Math.max(8, player.clientHeight - chatHead.offsetHeight - 8);
-  chatHead.style.left = `${Math.max(8, Math.min(maxLeft, chatHead.offsetLeft))}px`;
-  chatHead.style.top = `${Math.max(8, Math.min(maxTop, chatHead.offsetTop))}px`;
+  if (chatOverlay.hidden) return;
+  const insets = getMobileInsets();
+  const leftInset = mobilePopoverQuery.matches ? insets.left : 8;
+  const rightInset = mobilePopoverQuery.matches ? insets.right : 8;
+  const topInset = mobilePopoverQuery.matches ? insets.top : 8;
+  const bottomInset = mobilePopoverQuery.matches ? insets.bottom : 8;
+  const maxLeft = Math.max(leftInset, player.clientWidth - chatHead.offsetWidth - rightInset);
+  let maxTop = Math.max(topInset, player.clientHeight - chatHead.offsetHeight - bottomInset);
+  if (mobilePopoverQuery.matches && popoverOpen) {
+    const boundary = player.clientHeight * (isLandscapePopover() ? 0.6 : 0.45);
+    const minPanelHeight = Math.min(120, Math.max(0, boundary - chatHead.offsetHeight - 16));
+    maxTop = Math.min(maxTop, Math.max(topInset, boundary - chatHead.offsetHeight - 8 - minPanelHeight));
+  }
+  const playerRect = player.getBoundingClientRect();
+  const headRect = chatHead.getBoundingClientRect();
+  const currentLeft = mobilePopoverQuery.matches ? headRect.left - playerRect.left : chatHead.offsetLeft;
+  const currentTop = mobilePopoverQuery.matches ? headRect.top - playerRect.top : chatHead.offsetTop;
+  chatHead.style.right = "auto";
+  chatHead.style.left = `${Math.max(leftInset, Math.min(maxLeft, currentLeft))}px`;
+  chatHead.style.top = `${Math.max(topInset, Math.min(maxTop, currentTop))}px`;
+  chatHead.classList.toggle("chat-head-left", chatHead.offsetLeft + chatHead.offsetWidth / 2 < player.clientWidth / 2);
   positionPreviews();
+  if (popoverOpen) positionPopover();
 }
 
 function restoreChatHeadPosition() {
+  let restored = false;
   try {
     const saved = JSON.parse(localStorage.getItem("watch-party-chat-head") || "null");
     if (saved && Number.isFinite(saved.left) && Number.isFinite(saved.top)) {
       chatHead.style.left = `${saved.left}px`;
       chatHead.style.top = `${saved.top}px`;
+      restored = true;
     }
   } catch (error) {
     console.warn("Could not restore chat position:", error);
+  }
+  if (mobilePopoverQuery.matches && !restored) {
+    const insets = getMobileInsets();
+    chatHead.style.left = `${player.clientWidth - chatHead.offsetWidth - insets.right}px`;
+    chatHead.style.top = `${insets.top}px`;
   }
   clampChatHead();
 }
@@ -515,6 +687,16 @@ chatHead.addEventListener("pointermove", (event) => {
 function finishChatHeadDrag(event) {
   if (!headPointerStart || event.pointerId !== headPointerStart.pointerId) return;
   if (headDragged) {
+    if (mobilePopoverQuery.matches) {
+      const insets = getMobileInsets();
+      const snapLeft = chatHead.offsetLeft + chatHead.offsetWidth / 2 < player.clientWidth / 2
+        ? insets.left
+        : player.clientWidth - chatHead.offsetWidth - insets.right;
+      chatHead.style.left = `${snapLeft}px`;
+      chatHead.classList.toggle("chat-head-left", snapLeft < player.clientWidth / 2);
+      positionPreviews();
+      if (popoverOpen) positionPopover();
+    }
     suppressHeadClick = true;
     saveChatHeadPosition();
   }
@@ -531,9 +713,15 @@ chatHead.addEventListener("click", () => {
   toggleChat();
 });
 
-chatCloseBtn.addEventListener("click", closeChat);
+chatCloseBtn.addEventListener("click", closePopover);
 chatPanel.addEventListener("click", (event) => event.stopPropagation());
 chatPanel.addEventListener("pointerdown", (event) => event.stopPropagation());
+player.addEventListener("click", (event) => {
+  if (!mobilePopoverQuery.matches || !popoverOpen || chatPanel.contains(event.target) || chatHead.contains(event.target)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  closePopover();
+});
 newMessagesBtn.addEventListener("click", () => {
   chatMessages.scrollTop = chatMessages.scrollHeight;
   newMessagesBtn.hidden = true;
@@ -550,13 +738,17 @@ chatForm.addEventListener("submit", (event) => {
 
 chatInput.addEventListener("keydown", (event) => {
   event.stopPropagation();
-  if (event.key === "Escape") closeChat();
+  if (event.key === "Escape") closePopover();
 });
 chatInput.addEventListener("keyup", (event) => event.stopPropagation());
+chatInput.addEventListener("focus", () => {
+  if (mobilePopoverQuery.matches && popoverOpen && keyboardHeadTop === null) keyboardHeadTop = chatHead.offsetTop;
+});
+chatInput.addEventListener("blur", () => requestAnimationFrame(handleKeyboardViewport));
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !chatPanel.hidden) {
-    closeChat();
+  if (event.key === "Escape" && popoverOpen) {
+    closePopover();
     return;
   }
   if (event.key.toLowerCase() !== "c" || event.ctrlKey || event.altKey || event.metaKey) return;
@@ -564,7 +756,40 @@ document.addEventListener("keydown", (event) => {
   toggleChat();
 });
 
+function updateMobileChatLayout() {
+  if (mobilePopoverQuery.matches) {
+    voiceSettings.append(duckControl);
+    if (popoverOpen) {
+      chatPanel.hidden = false;
+      chatPanel.inert = false;
+      chatPanel.setAttribute("aria-hidden", "false");
+      chatPanel.classList.remove("is-closing");
+      chatPanel.classList.add("is-open");
+      chatHead.classList.add("popover-open");
+    }
+  } else {
+    voiceControls.append(duckControl);
+    chatHead.style.removeProperty("left");
+    chatHead.style.removeProperty("right");
+    chatHead.style.removeProperty("top");
+    chatPanel.style.removeProperty("left");
+    chatPanel.style.removeProperty("top");
+    chatPanel.style.removeProperty("right");
+    chatPanel.style.removeProperty("height");
+    chatPanel.classList.remove("is-open", "is-closing", "popover-left");
+    chatHead.classList.remove("popover-open");
+  }
+  if (!chatOverlay.hidden) {
+    if (!mobilePopoverQuery.matches) restoreChatHeadPosition();
+    clampChatHead();
+    if (popoverOpen) positionPopover();
+  }
+}
+
 window.addEventListener("resize", clampChatHead);
+mobilePopoverQuery.addEventListener("change", updateMobileChatLayout);
+window.visualViewport?.addEventListener("resize", handleKeyboardViewport);
+updateMobileChatLayout();
 window.watchPartyUsernameColor = usernameColor;
 
 

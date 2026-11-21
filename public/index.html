@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>Movie Sync</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -24,7 +24,7 @@
         <track kind="subtitles" src="/subtitle" srclang="en" label="English" default />
       </video>
       <div class="chat-overlay" id="chatOverlay" hidden>
-        <button class="chat-head" id="chatHead" type="button" aria-label="Open watch-party chat" title="Watch-party chat">
+        <button class="chat-head" id="chatHead" type="button" aria-label="Open watch-party chat" aria-expanded="false" aria-controls="chatPanel" title="Watch-party chat">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H6l-3 2v-5.5A7.5 7.5 0 1 1 20 11.5Z" />
             <path d="M7 10h10M7 13h7" />
@@ -36,7 +36,7 @@
         <span class="voice-speaker-pill" id="voiceSpeakerPill" hidden></span>
         <span class="visually-hidden" id="voiceSpeakingLive" aria-live="polite"></span>
         <span class="duck-label" id="duckLabel" hidden>Movie 30%</span>
-        <section class="chat-panel" id="chatPanel" aria-label="Watch-party chat" hidden>
+        <section class="chat-panel" id="chatPanel" role="dialog" aria-label="Chat" aria-hidden="true" hidden inert>
           <header class="chat-header">
             <div class="chat-avatar" id="chatAvatar">WP</div>
             <div class="chat-heading">
