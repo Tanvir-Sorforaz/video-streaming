@@ -33,6 +33,27 @@ let roomState = {
 };
 
 let joiningInProgressUntil = 0;
+const chatHistory = [];
+const lastSeekByUsername = new Map();
+
+function saveChatItem(item, eventName, replaceEventId) {
+  if (replaceEventId) {
+    const existingIndex = chatHistory.findIndex((entry) => entry.eventId === replaceEventId);
+    if (existingIndex !== -1) {
+      chatHistory[existingIndex] = item;
+    } else {
+      chatHistory.push(item);
+    }
+  } else {
+    chatHistory.push(item);
+  }
+
+  if (chatHistory.length > 50) {
+    chatHistory.splice(0, chatHistory.length - 50);
+  }
+
+  io.emit(eventName, item);
+}
 
 app.get("/video", (req, res) => {
   const stat = fs.statSync(videoPath);
@@ -81,12 +102,30 @@ app.get("/", (req, res) => {
 io.on("connection", (socket) => {
   const username = socket.handshake.auth.username || "Unknown User";
   socket.username = username;
+  socket.chatMessageTimes = [];
+  socket.pendingActivityEvents = [];
 
   console.log("User connected:", socket.username);
 
   joiningInProgressUntil = Date.now() + 1500;
 
-  socket.emit("init-state", roomState);
+  socket.emit("init-state", { ...roomState, chatHistory: chatHistory.slice() });
+  saveChatItem({ type: "join", username, time: Date.now() }, "chat-event");
+  io.emit("online-count", io.sockets.sockets.size);
+
+  socket.on("chat-message", (payload) => {
+    if (typeof payload !== "string") return;
+
+    const text = payload.trim().slice(0, 300);
+    if (!text) return;
+
+    const now = Date.now();
+    socket.chatMessageTimes = socket.chatMessageTimes.filter((time) => now - time < 5000);
+    if (socket.chatMessageTimes.length >= 5) return;
+    socket.chatMessageTimes.push(now);
+
+    saveChatItem({ type: "message", username, text, time: now }, "chat-message");
+  });
 
   socket.on("sync-event", (data) => {
     if (data.type === "heartbeat" && Date.now() < joiningInProgressUntil) {
@@ -103,6 +142,46 @@ io.on("connection", (socket) => {
       console.log(`${socket.username} seeked the video to ${data.currentTime.toFixed(2)}s`);
     }
 
+    if (data.type === "play" || data.type === "pause" || data.type === "seek") {
+      const now = Date.now();
+      let eventId;
+      let replaceEventId;
+
+      if (data.type === "seek") {
+        const previousSeek = lastSeekByUsername.get(username);
+        if (previousSeek && now - previousSeek.time < 1500) {
+          eventId = previousSeek.eventId;
+          replaceEventId = eventId;
+        } else {
+          eventId = `${socket.id}-${now}`;
+        }
+        lastSeekByUsername.set(username, { eventId, time: now });
+      }
+
+      const activity = {
+        type: data.type,
+        username,
+        currentTime: data.currentTime,
+        time: now,
+        ...(eventId ? { eventId } : {}),
+      };
+
+      if (data.type === "play" || data.type === "pause") {
+        const pendingActivity = { item: activity, timer: null };
+        pendingActivity.timer = setTimeout(() => {
+          const pendingIndex = socket.pendingActivityEvents.indexOf(pendingActivity);
+          if (pendingIndex === -1) return;
+          socket.pendingActivityEvents.splice(pendingIndex, 1);
+          saveChatItem(activity, "chat-event");
+        }, data.type === "pause" ? 1500 : 300);
+        socket.pendingActivityEvents.push(pendingActivity);
+      } else {
+        socket.pendingActivityEvents.forEach(({ timer }) => clearTimeout(timer));
+        socket.pendingActivityEvents = [];
+        saveChatItem(activity, "chat-event", replaceEventId);
+      }
+    }
+
     roomState = {
       isPlaying: data.isPlaying,
       currentTime: data.currentTime,
@@ -114,6 +193,13 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.username);
+    socket.pendingActivityEvents.forEach(({ item, timer }) => {
+      clearTimeout(timer);
+      saveChatItem(item, "chat-event");
+    });
+    socket.pendingActivityEvents = [];
+    saveChatItem({ type: "leave", username, time: Date.now() }, "chat-event");
+    io.emit("online-count", io.sockets.sockets.size);
   });
 });
 
