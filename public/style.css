@@ -165,7 +165,13 @@ video.fit-contain {
 
 .chat-head > svg,
 .chat-close svg,
-.chat-send svg {
+.chat-send svg,
+.voice-header-button svg,
+.voice-mute-button svg,
+.voice-leave-button svg,
+.voice-muted-badge svg,
+.voice-mic-badge svg,
+.headphones-icon {
   width: 100%;
   height: 100%;
   fill: none;
@@ -256,6 +262,388 @@ video.fit-contain {
   align-items: center;
   gap: 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.voice-header-button,
+.voice-mute-button,
+.voice-leave-button {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 7px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.12);
+  color: white;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.voice-header-button {
+  width: 32px;
+  padding: 8px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.voice-header-button svg,
+.voice-mute-button svg,
+.voice-leave-button svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+}
+
+.voice-header-button:hover,
+.voice-mute-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.voice-strip {
+  position: relative;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  pointer-events: auto;
+}
+
+.voice-join-row {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.headphones-icon {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+  stroke: rgba(255, 255, 255, 0.7);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.headphones-copy,
+.voice-count-label {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+}
+
+.voice-count-label {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.voice-join-button,
+.voice-error button,
+.audio-enable-button {
+  padding: 6px 11px;
+  border: 1px solid rgba(127, 231, 162, 0.55);
+  border-radius: 16px;
+  background: rgba(44, 153, 85, 0.72);
+  color: white;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.voice-join-button {
+  margin-left: auto;
+}
+
+.voice-join-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.voice-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #ffd2d2;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.voice-error button,
+.audio-enable-button {
+  flex: 0 0 auto;
+  border-color: var(--chat-glass-border);
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.voice-call {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.voice-participants {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+}
+
+.voice-participant {
+  width: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.voice-avatar-button {
+  width: 46px;
+  height: 46px;
+  padding: 2px;
+  display: grid;
+  place-items: center;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+.voice-avatar-button:disabled {
+  cursor: default;
+}
+
+.voice-avatar-button.speaking .voice-avatar {
+  box-shadow: 0 0 0 3px #65e39a;
+}
+
+.voice-avatar {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #111;
+  font-size: 11px;
+  font-weight: 700;
+  transition: box-shadow 150ms ease;
+}
+
+.voice-participant-name {
+  max-width: 72px;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-muted-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  width: 15px;
+  height: 15px;
+  padding: 3px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  background: #d94343;
+  color: white;
+}
+
+.voice-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.voice-mute-button {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.voice-leave-button {
+  border-color: rgba(255, 125, 125, 0.48);
+  background: rgba(184, 48, 48, 0.72);
+}
+
+.duck-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(255, 255, 255, 0.86);
+  cursor: pointer;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.duck-control input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.duck-switch {
+  position: relative;
+  width: 28px;
+  height: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.duck-switch::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: white;
+  content: "";
+  transition: transform 150ms ease;
+}
+
+.duck-control input:checked + .duck-switch {
+  background: rgba(44, 153, 85, 0.78);
+}
+
+.duck-control input:checked + .duck-switch::after {
+  transform: translateX(12px);
+}
+
+.duck-control input:focus-visible + .duck-switch {
+  outline: 2px solid white;
+  outline-offset: 2px;
+}
+
+.voice-status {
+  margin: 4px 0 0;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 11px;
+  text-align: center;
+}
+
+.audio-enable-button {
+  display: block;
+  margin: 8px auto 0;
+}
+
+.voice-popover {
+  position: absolute;
+  z-index: 3;
+  width: 192px;
+  padding: 10px;
+  border: 1px solid var(--chat-glass-border);
+  border-radius: 10px;
+  background: rgba(10, 10, 12, 0.92);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  color: white;
+  font-size: 11px;
+}
+
+.voice-popover-title {
+  margin: 0 0 8px;
+  font-weight: 700;
+}
+
+.voice-popover label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.voice-popover input[type="range"] {
+  width: 100%;
+  accent-color: #69d992;
+}
+
+.voice-popover .voice-local-mute {
+  margin-top: 9px;
+  flex-direction: row;
+  align-items: center;
+}
+
+.voice-audio {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.voice-mic-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 18px;
+  height: 18px;
+  padding: 4px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  background: #2eae67;
+  color: white;
+}
+
+.voice-mic-badge.muted {
+  background: #d94343;
+}
+
+.chat-head.voice-speaking {
+  box-shadow: 0 0 0 3px rgba(85, 231, 145, 0.8), 0 0 16px rgba(85, 231, 145, 0.55);
+}
+
+.voice-speaker-pill {
+  position: absolute;
+  z-index: 21;
+  padding: 6px 10px;
+  border: 1px solid rgba(113, 226, 154, 0.42);
+  border-radius: 14px;
+  background: rgba(10, 30, 18, 0.76);
+  color: #d4ffe2;
+  font-size: 11px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.duck-label {
+  position: absolute;
+  bottom: 60px;
+  left: 50%;
+  z-index: 21;
+  transform: translateX(-50%);
+  padding: 5px 9px;
+  border: 1px solid rgba(255, 191, 74, 0.52);
+  border-radius: 12px;
+  background: rgba(55, 37, 8, 0.84);
+  color: #ffd887;
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .chat-avatar {
@@ -434,12 +822,47 @@ video.fit-contain {
     height: min(60dvh, 440px);
     max-height: calc(100% - 80px);
   }
+
+  .voice-join-row {
+    flex-wrap: wrap;
+  }
+
+  .voice-participant {
+    width: 42px;
+  }
+
+  .voice-avatar-button {
+    width: 40px;
+    height: 40px;
+  }
+
+  .voice-avatar {
+    width: 32px;
+    height: 32px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .chat-preview {
     transition: none;
     transform: none;
+  }
+
+  .voice-avatar {
+    transition: none;
+  }
+
+  .voice-avatar-button.speaking {
+    border-color: #65e39a;
+  }
+
+  .voice-avatar-button.speaking .voice-avatar {
+    box-shadow: none;
+  }
+
+  .chat-head.voice-speaking {
+    border-color: #65e39a;
+    box-shadow: none;
   }
 }
 

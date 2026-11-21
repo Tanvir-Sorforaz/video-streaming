@@ -1,4 +1,5 @@
 const socket = io({ autoConnect: false });
+window.watchPartySocket = socket;
 
 const video = document.getElementById("video");
 const backBtn = document.getElementById("back");
@@ -20,7 +21,8 @@ const chatAvatar = document.getElementById("chatAvatar");
 const chatMessages = document.getElementById("chatMessages");
 const chatForm = document.getElementById("chatForm");
 const chatInput = document.getElementById("chatInput");
-const onlineCount = document.getElementById("onlineCount");
+const onlineCount = document.getElementById("onlineCountValue");
+const chatSubtitle = document.getElementById("chatSubtitle");
 const newMessagesBtn = document.getElementById("newMessages");
 
 let isRemoteUpdate = false;
@@ -67,6 +69,7 @@ function joinRoom() {
   }
 
   currentUsername = username;
+  window.watchPartyUsername = username;
   chatAvatar.textContent = getInitials(username);
   chatOverlay.hidden = false;
   restoreChatHeadPosition();
@@ -293,6 +296,10 @@ function appendActivityText(element, item) {
     element.append(document.createTextNode(" joined"));
   } else if (item.type === "leave") {
     element.append(document.createTextNode(" left"));
+  } else if (item.type === "voice-join") {
+    element.append(document.createTextNode(" joined voice"));
+  } else if (item.type === "voice-leave") {
+    element.append(document.createTextNode(" left voice"));
   } else if (item.type === "seek") {
     element.append(document.createTextNode(` skipped to ${formatVideoTime(item.currentTime)}`));
   } else {
@@ -303,7 +310,7 @@ function appendActivityText(element, item) {
 
 function renderEvent(item) {
   const event = document.createElement("div");
-  event.className = `chat-event ${item.type === "join" ? "join-event" : ""} ${item.type === "leave" ? "leave-event" : ""}`;
+  event.className = `chat-event ${item.type === "join" || item.type === "voice-join" ? "join-event" : ""} ${item.type === "leave" || item.type === "voice-leave" ? "leave-event" : ""}`;
   event.title = new Date(item.time).toLocaleTimeString();
   if (item.eventId) event.dataset.eventId = item.eventId;
   appendActivityText(event, item);
@@ -558,5 +565,6 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("resize", clampChatHead);
+window.watchPartyUsernameColor = usernameColor;
 
 

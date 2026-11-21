@@ -3,6 +3,8 @@ const fs = require("fs");
 const path = require("path");
 const http = require("http");
 const readline = require("readline");
+const os = require("os");
+const { execFile } = require("child_process");
 const { Server } = require("socket.io");
 const { pickVideo, pickSubtitle } = require("./filePicker");
 
@@ -35,6 +37,7 @@ let roomState = {
 let joiningInProgressUntil = 0;
 const chatHistory = [];
 const lastSeekByUsername = new Map();
+const voiceUsers = new Map();
 
 function saveChatItem(item, eventName, replaceEventId) {
   if (replaceEventId) {
@@ -53,6 +56,16 @@ function saveChatItem(item, eventName, replaceEventId) {
   }
 
   io.emit(eventName, item);
+}
+
+function leaveVoice(socket) {
+  const user = voiceUsers.get(socket.id);
+  if (!user) return;
+
+  voiceUsers.delete(socket.id);
+  io.emit("voice-left", { id: socket.id });
+  io.emit("voice-count", voiceUsers.size);
+  saveChatItem({ type: "voice-leave", username: user.username, time: Date.now() }, "chat-event");
 }
 
 app.get("/video", (req, res) => {
@@ -109,9 +122,58 @@ io.on("connection", (socket) => {
 
   joiningInProgressUntil = Date.now() + 1500;
 
-  socket.emit("init-state", { ...roomState, chatHistory: chatHistory.slice() });
+  socket.emit("init-state", {
+    ...roomState,
+    chatHistory: chatHistory.slice(),
+    voiceCount: voiceUsers.size,
+    voiceUsers: Array.from(voiceUsers, ([id, user]) => ({ id, ...user })),
+  });
   saveChatItem({ type: "join", username, time: Date.now() }, "chat-event");
   io.emit("online-count", io.sockets.sockets.size);
+
+  socket.voiceSignalTimes = [];
+
+  socket.on("voice-join", () => {
+    if (voiceUsers.has(socket.id)) return;
+    if (voiceUsers.size >= 8) {
+      socket.emit("voice-full");
+      return;
+    }
+
+    const peers = Array.from(voiceUsers, ([id, user]) => ({ id, ...user }));
+    voiceUsers.set(socket.id, { username: socket.username, muted: false });
+    socket.emit("voice-peers", peers);
+    io.emit("voice-count", voiceUsers.size);
+    saveChatItem({ type: "voice-join", username: socket.username, time: Date.now() }, "chat-event");
+  });
+
+  socket.on("voice-signal", (payload) => {
+    if (!payload || typeof payload.to !== "string" || !payload.data || typeof payload.data !== "object" || Array.isArray(payload.data)) {
+      return;
+    }
+    if (!voiceUsers.has(socket.id) || !voiceUsers.has(payload.to)) return;
+
+    const now = Date.now();
+    socket.voiceSignalTimes = socket.voiceSignalTimes.filter((time) => now - time < 5000);
+    if (socket.voiceSignalTimes.length >= 100) return;
+    socket.voiceSignalTimes.push(now);
+
+    io.to(payload.to).emit("voice-signal", {
+      from: socket.id,
+      username: socket.username,
+      data: payload.data,
+    });
+  });
+
+  socket.on("voice-mute", (muted) => {
+    const user = voiceUsers.get(socket.id);
+    if (!user || typeof muted !== "boolean") return;
+
+    user.muted = muted;
+    io.emit("voice-mute-changed", { id: socket.id, muted });
+  });
+
+  socket.on("voice-leave", () => leaveVoice(socket));
 
   socket.on("chat-message", (payload) => {
     if (typeof payload !== "string") return;
@@ -193,6 +255,7 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.username);
+    leaveVoice(socket);
     socket.pendingActivityEvents.forEach(({ item, timer }) => {
       clearTimeout(timer);
       saveChatItem(item, "chat-event");
@@ -243,6 +306,98 @@ async function resolveSubtitlePath() {
   return picked;
 }
 
+function getIPs() {
+  const lan = [];
+  const tailscale = [];
+
+  for (const addresses of Object.values(os.networkInterfaces())) {
+    for (const address of addresses || []) {
+      if (address.internal || (address.family !== "IPv4" && address.family !== 4)) continue;
+
+      const octets = address.address.split(".").map(Number);
+      if (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) {
+        tailscale.push(address.address);
+      } else {
+        lan.push(address.address);
+      }
+    }
+  }
+
+  return {
+    lan: [...new Set(lan)],
+    tailscale: [...new Set(tailscale)],
+  };
+}
+
+function runTailscale(args) {
+  const candidates = ["tailscale"];
+  if (process.platform === "win32") {
+    candidates.push("C:\\Program Files\\Tailscale\\tailscale.exe");
+  } else if (process.platform === "darwin") {
+    candidates.push("/Applications/Tailscale.app/Contents/MacOS/Tailscale");
+  }
+
+  return new Promise((resolve) => {
+    let candidateIndex = 0;
+
+    const tryNext = () => {
+      if (candidateIndex >= candidates.length) {
+        resolve(null);
+        return;
+      }
+
+      const executable = candidates[candidateIndex];
+      candidateIndex += 1;
+
+      try {
+        execFile(executable, args, { timeout: 4000, windowsHide: true, encoding: "utf8" }, (error, stdout) => {
+          if (error) {
+            tryNext();
+            return;
+          }
+          resolve(stdout.trim());
+        });
+      } catch (error) {
+        tryNext();
+      }
+    };
+
+    tryNext();
+  });
+}
+
+async function getTailscaleHttpsUrl() {
+  try {
+    const status = await runTailscale(["status", "--json"]);
+    if (!status) return null;
+
+    const data = JSON.parse(status);
+    const dnsName = data.Self?.DNSName?.trim().replace(/\.$/, "");
+    return dnsName ? `https://${dnsName}` : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function isServeConfigured(port) {
+  try {
+    const status = await runTailscale(["serve", "status"]);
+    return Boolean(status && status.includes(String(port)));
+  } catch (error) {
+    return false;
+  }
+}
+
+function colorize(text, colorCode) {
+  if (!process.stdout.isTTY || process.env.NO_COLOR) return text;
+  return `\x1b[${colorCode}m${text}\x1b[0m`;
+}
+
+function printAccessUrl(label, url, note, colorCode) {
+  const details = note ? ` ${colorize(note, "90")}` : "";
+  console.log(`  ${colorize(label.padEnd(12), colorCode)} ${url}${details}`);
+}
+
 async function startServer() {
   videoPath = await resolveVideoPath();
   if (videoPath) {
@@ -267,8 +422,39 @@ async function startServer() {
     process.exit(1);
   }
 
-  server.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
+  server.listen(PORT, "0.0.0.0", async () => {
+    console.log("");
+    console.log(colorize("+--------------------------------------------------+", "90"));
+    console.log(`${colorize("|", "90")} ${colorize("VIDEO WATCH PARTY", "1;36")}${" ".repeat(30)}${colorize("|", "90")}`);
+    console.log(colorize("+--------------------------------------------------+", "90"));
+    console.log(`${colorize("  SERVER", "1;32")}  Server running on port ${PORT}`);
+    console.log("");
+
+    const ips = getIPs();
+    printAccessUrl("LOCAL", `http://localhost:${PORT}`, "this computer", "1;37");
+    for (const ip of ips.lan) {
+      printAccessUrl("WI-FI / LAN", `http://${ip}:${PORT}`, "video and chat only, no microphone", "36");
+    }
+    for (const ip of ips.tailscale) {
+      printAccessUrl("TAILSCALE HTTP", `http://${ip}:${PORT}`, "video and chat only, no microphone", "35");
+    }
+
+    try {
+      const tailscaleUrl = await getTailscaleHttpsUrl();
+      if (!tailscaleUrl) {
+        console.log(`  ${colorize("VOICE CHAT", "1;32")}  Tailscale HTTPS not found. Start and connect Tailscale VPN.`);
+        return;
+      }
+
+      printAccessUrl("VOICE CHAT", tailscaleUrl, "use this one for voice chat", "1;32");
+      if (!await isServeConfigured(PORT)) {
+        console.log(`  ${colorize("SETUP", "1;33")}      Not serving yet. Run: tailscale serve --bg ${PORT}`);
+      }
+    } catch (error) {
+      console.log(`  ${colorize("VOICE CHAT", "1;32")}  Tailscale HTTPS not found. Start and connect Tailscale VPN.`);
+    }
+
+    console.log("");
   });
 }
 
